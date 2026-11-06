@@ -24,6 +24,7 @@ const state = {
   expanded: new Set(['all']),
   q: '',
   follow: true,     // 目录跟随滚动高亮
+  manageMode: false, // 分组管理模式：开启后才能重命名/删除分组
 };
 
 const editor = $('#editor');
@@ -118,8 +119,9 @@ function groupHtml(g, idx, notes) {
     <span class="t-label">${esc(g.name)}</span>
     <span class="t-count">${notes.length}</span>
     <span class="t-op" data-new="${g.id}" title="在此分组新建笔记">＋</span>
+    ${state.manageMode ? `
     <span class="t-op" data-edit="${g.id}" title="重命名">✎</span>
-    <span class="t-op danger" data-del="${g.id}" title="删除分组">×</span>
+    <span class="t-op danger" data-del="${g.id}" title="删除分组">×</span>` : ''}
   </div>`;
   if (open) {
     const sorted = [...notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -493,6 +495,17 @@ $('#moveMenu').addEventListener('click', async e => {
 
 // 新建 / 搜索
 $('#btnNew').addEventListener('click', createNote);
+
+// 分组管理开关
+$('#btnManage').addEventListener('click', () => {
+  state.manageMode = !state.manageMode;
+  $('#btnManage').classList.toggle('on', state.manageMode);
+  renderTree();
+  toast(state.manageMode
+    ? '分组管理已开启：可重命名（✎）/ 删除（×）分组'
+    : '分组管理已关闭');
+});
+
 $('#searchInput').addEventListener('input', e => {
   state.q = e.target.value.trim().toLowerCase();
   renderTree();
