@@ -8,7 +8,6 @@ const ICON = {
   folder: '<svg viewBox="0 0 16 16"><path d="M1.8 4.3h4.2l1.3 1.7h6.9v6.5H1.8z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>',
   file: '<svg viewBox="0 0 16 16"><path d="M4.2 1.8h5.2l2.9 2.9v9.5H4.2z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M9.2 1.8v3.1h3.1" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
   all: '<svg viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M2 6.2h12M6.3 6.2v7.3" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
-  month: '<svg viewBox="0 0 16 16"><rect x="2" y="3.2" width="12" height="10.2" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M2 6.5h12M5.4 1.9v2.4M10.6 1.9v2.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
   trash: '<svg viewBox="0 0 16 16"><path d="M2.8 4.5h10.4M6.5 4.5V2.8h3v1.7M4.3 4.5l.6 8.7h6.2l.6-8.7" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>',
   search: '<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.4" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M10.4 10.4L14 14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
 };
@@ -20,7 +19,6 @@ const state = {
   trashNotes: [],
   groups: [],
   currentId: null,
-  activeGroup: null,
   dirty: false,
   saveTimer: null,
   expanded: new Set(['all']),
@@ -64,10 +62,6 @@ function dateCN(s) {
   const [y, m, d] = s.slice(0, 10).split('-');
   return `${y}年${parseInt(m)}月${parseInt(d)}日`;
 }
-function monthCN(ym) {
-  const [y, m] = ym.split('-');
-  return `${y}年${parseInt(m)}月`;
-}
 function noteLabel(n) { return n.title || dateCN(n.updatedAt); }
 
 function previewHtml(html) {
@@ -101,17 +95,6 @@ async function loadAll() {
 }
 
 /* ---------------- 树形导航 ---------------- */
-function monthsOf(notes) {
-  const map = new Map();
-  notes.forEach(n => {
-    const ym = n.updatedAt.slice(0, 7);
-    if (!map.has(ym)) map.set(ym, []);
-    map.get(ym).push(n);
-  });
-  return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([ym, list]) => [ym, [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))]);
-}
-
 function arrow(open, hasChildren = true) {
   return `<span class="t-arrow ${open ? 'open' : ''} ${hasChildren ? '' : 'empty'}">${ICON.arrow}</span>`;
 }
@@ -121,20 +104,8 @@ function leafHtml(n, depth, trash = false) {
   return `<div class="t-leaf ${n.id === state.currentId ? 'sel' : ''}" style="padding-left:${pad}px"
     ${trash ? `data-trash="${n.id}"` : `data-note="${n.id}"`}>
     ${arrow(false, false)}<span class="t-ico">${ICON.file}</span>
-    <span class="t-label">${esc(noteLabel(n))}</span></div>`;
-}
-
-function monthNodes(keyPrefix, notes, depth) {
-  let html = '';
-  for (const [ym, list] of monthsOf(notes)) {
-    const mkey = `${keyPrefix}:${ym}`;
-    const mopen = state.expanded.has(mkey);
-    html += `<div class="t-node" style="padding-left:${depth}px" data-node="${mkey}">
-      ${arrow(mopen)}<span class="t-ico">${ICON.month}</span>
-      <span class="t-label">${monthCN(ym)}</span><span class="t-count">${list.length}</span></div>`;
-    if (mopen) list.forEach(n => (html += leafHtml(n, 2)));
-  }
-  return html;
+    <span class="t-label">${esc(noteLabel(n))}</span>
+    ${trash ? '' : `<span class="t-op" data-move="${n.id}" title="移动到分组">→</span>`}</div>`;
 }
 
 function groupHtml(g, idx, notes) {
@@ -146,11 +117,16 @@ function groupHtml(g, idx, notes) {
     <span class="t-ico" style="color:${color}">${ICON.folder}</span>
     <span class="t-label">${esc(g.name)}</span>
     <span class="t-count">${notes.length}</span>
+    <span class="t-op" data-new="${g.id}" title="在此分组新建笔记">＋</span>
     <span class="t-op" data-edit="${g.id}" title="重命名">✎</span>
     <span class="t-op danger" data-del="${g.id}" title="删除分组">×</span>
   </div>`;
-  if (open && notes.length) html += monthNodes('m:' + g.id, notes, 32);
-  else if (open) html += '<div class="t-empty" style="padding-left:50px">暂无笔记</div>';
+  if (open) {
+    const sorted = [...notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    html += sorted.length
+      ? sorted.map(n => leafHtml(n, 2)).join('')
+      : '<div class="t-empty" style="padding-left:50px">暂无笔记</div>';
+  }
   return html;
 }
 
@@ -185,8 +161,12 @@ function renderTree() {
       const open = state.expanded.has('g:none');
       html += `<div class="t-node" style="padding-left:14px" data-node="g:none">
         ${arrow(open)}<span class="t-ico" style="color:#b3b8bf">${ICON.folder}</span>
-        <span class="t-label">未分组</span><span class="t-count">${orphans.length}</span></div>`;
-      if (open) html += monthNodes('m:none', orphans, 32);
+        <span class="t-label">未分组</span><span class="t-count">${orphans.length}</span>
+        <span class="t-op" data-new="none" title="在此新建笔记">＋</span></div>`;
+      if (open) {
+        html += [...orphans].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          .map(n => leafHtml(n, 2)).join('');
+      }
     }
   }
 
@@ -249,15 +229,14 @@ async function flushSave() {
   setSaveStatus('已保存 ' + updated.updatedAt.slice(11, 16));
 }
 
-async function createNote() {
+async function createNote(groupId = null) {
   await flushSave();
-  const body = {};
-  if (state.activeGroup != null) body.groupId = state.activeGroup;
+  // 默认进入「未分组」；点分组旁的 ＋ 时直接归入该分组
+  const body = groupId != null ? { groupId } : {};
   const n = await api('/api/notes', { method: 'POST', body });
   state.notes.unshift(n);
   state.expanded.add('all');
   state.expanded.add('g:' + (n.groupId ?? 'none'));
-  state.expanded.add(`m:${n.groupId ?? 'none'}:${n.updatedAt.slice(0, 7)}`);
   state.currentId = n.id;
   titleInput.value = '';
   editor.innerHTML = '';
@@ -421,6 +400,14 @@ $('#tree').addEventListener('click', async e => {
     openGroupModal();
     return;
   }
+  const nw = e.target.closest('[data-new]');
+  if (nw) {
+    e.stopPropagation();
+    const gid = nw.dataset.new === 'none' ? null : parseInt(nw.dataset.new);
+    createNote(gid);
+    return;
+  }
+
   const edit = e.target.closest('[data-edit]');
   if (edit) {
     e.stopPropagation();
@@ -433,8 +420,14 @@ $('#tree').addEventListener('click', async e => {
     e.stopPropagation();
     if (!confirm('删除分组后，组内笔记将移到「未分组」，确定？')) return;
     await api(`/api/groups/${del.dataset.del}`, { method: 'DELETE' });
-    if (state.activeGroup == del.dataset.del) state.activeGroup = null;
     await loadAll();
+    return;
+  }
+
+  const mv = e.target.closest('[data-move]');
+  if (mv) {
+    e.stopPropagation();
+    openMoveMenu(+mv.dataset.move, e.clientX, e.clientY);
     return;
   }
 
@@ -465,13 +458,37 @@ $('#tree').addEventListener('click', async e => {
   if (!node) return;
   const key = node.dataset.node;
 
-  if (key === 'trash' || key === 'all' || key.startsWith('g:') || key.startsWith('m:')) {
+  if (key === 'trash' || key === 'all' || key.startsWith('g:')) {
     state.expanded.has(key) ? state.expanded.delete(key) : state.expanded.add(key);
-    if (key.startsWith('g:') && key !== 'g:none') {
-      state.activeGroup = parseInt(key.split(':')[1]);
-    }
     renderTree();
   }
+});
+
+/* ---------------- 移动笔记到分组 ---------------- */
+function openMoveMenu(noteId, x, y) {
+  const menu = $('#moveMenu');
+  const items = state.groups.map((g, i) =>
+    `<div class="dd-item" data-mv-group="${g.id}">
+      <span class="t-dot" style="background:${GROUP_COLORS[i % GROUP_COLORS.length]};display:inline-block;margin-right:6px"></span>${esc(g.name)}</div>`);
+  items.push('<div class="dd-item" data-mv-group="">未分组</div>');
+  menu.innerHTML = items.join('');
+  menu._noteId = noteId;
+  menu.hidden = false;
+  // 防止菜单超出视口
+  const mw = 160, mh = menu.offsetHeight || 40 * (state.groups.length + 1);
+  menu.style.left = Math.min(x, window.innerWidth - mw - 8) + 'px';
+  menu.style.top = Math.min(y, window.innerHeight - mh - 8) + 'px';
+}
+
+$('#moveMenu').addEventListener('click', async e => {
+  const item = e.target.closest('[data-mv-group]');
+  if (!item) return;
+  const gid = item.dataset.mvGroup === '' ? null : parseInt(item.dataset.mvGroup);
+  const noteId = $('#moveMenu')._noteId;
+  await api(`/api/notes/${noteId}`, { method: 'PUT', body: { groupId: gid } });
+  $('#moveMenu').hidden = true;
+  toast(gid == null ? '已移到未分组' : '已移到分组');
+  await loadAll();
 });
 
 // 新建 / 搜索
