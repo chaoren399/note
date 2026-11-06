@@ -1,0 +1,12 @@
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5070
+ * Running on http://192.168.3.21:5070
+Press CTRL+C to quit
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 441-365-038
+ * Detected change in 'D:\\03-code\\pycharm\\stock\\note\\app.py', reloading
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 441-365-038
